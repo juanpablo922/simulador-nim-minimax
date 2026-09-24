@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulador Interactivo - Minimax y Poda Alfa-Beta (Nim)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        /* Estilos CSS para el árbol estructural */
+        .tree ul {
+            padding-top: 20px; position: relative;
+            transition: all 0.5s; display: flex; justify-content: center;
+        }
+        .tree li {
+            float: left; text-align: center;
+            list-style-type: none; position: relative;
+            padding: 20px 5px 0 5px;
+        }
+        .tree li::before, .tree li::after{
+            content: ''; position: absolute; top: 0; right: 50%;
+            border-top: 2px solid #cbd5e1; width: 50%; height: 20px;
+        }
+        .tree li::after{
+            right: auto; left: 50%; border-left: 2px solid #cbd5e1;
+        }
+        .tree li:only-child::after, .tree li:only-child::before {
+            display: none;
+        }
+        .tree li:only-child{
+            padding-top: 0;
+        }
+        .tree li:first-child::before, .tree li:last-child::after{
+            border: 0 none;
+        }
+        .tree li:last-child::before{
+            border-right: 2px solid #cbd5e1; border-radius: 0 5px 0 0;
+        }
+        .tree li:first-child::after{
+            border-radius: 5px 0 0 0;
+        }
+        .tree ul ul::before{
+            content: ''; position: absolute; top: 0; left: 50%;
+            border-left: 2px solid #cbd5e1; width: 0; height: 20px;
+        }
+        
+        /* Estilos de los nodos */
+        .node-box {
+            display: inline-block; padding: 10px 15px; border-radius: 8px;
+            background: white; border: 2px solid #cbd5e1; min-width: 100px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease; position: relative;
+        }
+        
+        /* Estados visuales */
+        .status-unvisited { opacity: 0.3; filter: grayscale(100%); }
+        .status-active { transform: scale(1.1); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2); z-index: 10; border-width: 3px; }
+        .status-evaluated { opacity: 1; }
+        .status-pruned { opacity: 0.4; border-style: dashed; background: #f8fafc; }
+        
+        /* Colores por jugador */
+        .player-max.status-active { border-color: #3b82f6; box-shadow: 0 0 15px rgba(59, 130, 246, 0.5); }
+        .player-max.status-evaluated { border-color: #3b82f6; }
+        .player-min.status-active { border-color: #ef4444; box-shadow: 0 0 15px rgba(239, 68, 68, 0.5); }
+        .player-min.status-evaluated { border-color: #ef4444; }
+        
+        .badge-move {
+            position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
+            background: #475569; color: white; font-size: 0.7rem;
+            padding: 2px 8px; border-radius: 12px; font-weight: bold;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 h-screen flex flex-col overflow-hidden">
+
+    <!-- Header / Panel de Control -->
+    <header class="bg-white border-b border-slate-200 p-4 shadow-sm z-20 flex-shrink-0 flex justify-between items-center flex-wrap gap-4">
+        <div>
+            <h1 class="text-xl font-bold text-slate-800"><i class="fa-solid fa-network-wired text-blue-600 mr-2"></i>Simulador de Nim: Minimax & Alfa-Beta</h1>
+            <p class="text-sm text-slate-500">Estado inicial [1, 3] | Exploración: F1, luego F2 (1 a N)</p>
+        </div>
+        
+        <div class="flex items-center gap-4 bg-slate-100 p-2 rounded-lg">
+            <label class="flex items-center cursor-pointer gap-2 font-semibold text-sm">
+                <input type="checkbox" id="toggle-ab" class="w-4 h-4 text-blue-600 rounded" checked>
+                Activar Poda Alfa-Beta
+            </label>
+            <div class="w-px h-6 bg-slate-300"></div>
+            <button id="btn-reset" class="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 rounded text-sm transition"><i class="fa-solid fa-rotate-left"></i> Reiniciar</button>
+            <button id="btn-prev" class="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 rounded text-sm transition"><i class="fa-solid fa-backward-step"></i> Paso Ant</button>
+            <button id="btn-play" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded shadow text-sm transition"><i class="fa-solid fa-play mr-1"></i> Reproducir</button>
+            <button id="btn-next" class="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 rounded text-sm transition"><i class="fa-solid fa-forward-step"></i> Paso Sig</button>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex flex-1 overflow-hidden">
+        
+        <!-- Sidebar Estado y Explicación -->
+        <aside class="w-80 bg-white border-r border-slate-200 shadow-sm flex flex-col flex-shrink-0 z-10">
+            <div class="p-5 border-b border-slate-100">
+                <h2 class="font-bold text-lg mb-4 text-slate-700">Progreso del Algoritmo</h2>
+                
+                <div class="mb-4">
+                    <div class="flex justify-between text-sm mb-1">
+                        <span class="font-semibold text-slate-500">Paso actual:</span>
+                        <span id="step-counter" class="font-bold text-blue-600">0 / 0</span>
+                    </div>
+                    <div class="w-full bg-slate-200 rounded-full h-2">
+                        <div id="step-progress" class="bg-blue-600 h-2 rounded-full" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div id="step-description" class="p-4 bg-blue-50 border border-blue-100 rounded-lg text-sm text-blue-800 font-medium min-h-[100px] flex items-center">
+                    Haz clic en Reproducir o en "Paso Sig" para iniciar la simulación.
+                </div>
+            </div>
+
+            <div class="p-5 flex-1 overflow-y-auto">
+                <h3 class="font-bold text-sm text-slate-400 uppercase tracking-wider mb-3">Leyenda Visual</h3>
+                <ul class="space-y-3 text-sm">
+                    <li class="flex items-center gap-3"><div class="w-4 h-4 border-2 border-blue-500 rounded bg-white"></div> <b>MAX</b> (Busca maximizar, +1)</li>
+                    <li class="flex items-center gap-3"><div class="w-4 h-4 border-2 border-red-500 rounded bg-white"></div> <b>MIN</b> (Busca minimizar, -1)</li>
+                    <li class="flex items-center gap-3"><div class="w-4 h-4 border-2 border-slate-300 bg-slate-100 rounded border-dashed"></div> Rama Podada (Descartada)</li>
+                    <li class="flex items-center gap-3"><div class="w-4 h-4 bg-yellow-300 rounded-full"></div> Mejor decisión para MAX</li>
+                </ul>
+            </div>
+        </aside>
+
+        <!-- Área del Árbol (Pan/Zoom) -->
+        <div class="flex-1 overflow-auto bg-slate-50 p-8 relative" id="tree-container">
+            <div class="tree inline-block min-w-full pb-20" id="tree-render-target">
+                <!-- El árbol se renderiza aquí dinámicamente vía JS -->
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // --- LOGICA DEL JUEGO NIM Y GENERACION DEL ARBOL ---
+        let globalNodeId = 0;
+
+        function getValidMoves(state) {
+            let moves = [];
+            // Fila 1 (exploración ascendente 1 a N)
+            for (let i = 1; i <= state[0]; i++) moves.push({ row: 0, count: i });
+            // Fila 2 (exploración ascendente 1 a N)
+            for (let i = 1; i <= state[1]; i++) moves.push({ row: 1, count: i });
+            return moves;
+        }
+
+        function buildFullTree(state, isMax) {
+            let node = {
+                id: 'n' + (globalNodeId++),
+                state: [...state],
+                isMax: isMax,
+                children: [],
+                move: null,
+                bestMoveId: null
+            };
+            
+            // Estado terminal
+            if (state[0] === 0 && state[1] === 0) return node;
+
+            let moves = getValidMoves(state);
+            for (let m of moves) {
+                let nextState = [...state];
+                nextState[m.row] -= m.count;
+                let child = buildFullTree(nextState, !isMax);
+                child.move = `F${m.row + 1}-${m.count}`; // Ej: F1-1 = Fila 1, retira 1
+                node.children.push(child);
+            }
+            return node;
+        }
+
+        // Renderizado recursivo del HTML del árbol
+        function renderTreeHTML(node) {
+            let html = `<li>
+                <div id="${node.id}" class="node-box player-${node.isMax ? 'max' : 'min'} status-unvisited relative">
+                    ${node.move ? `<div class="badge-move">${node.move}</div>` : ''}
+                    <div class="font-bold text-lg mb-1">${node.isMax ? 'MAX' : 'MIN'} [${node.state}]</div>
+                    <div id="${node.id}-ab" class="text-xs text-slate-500 bg-slate-100 rounded px-1 hidden font-mono">α:-∞ β:∞</div>
+                    <div id="${node.id}-v" class="font-bold mt-2 text-xl">-</div>
+                    <div id="${node.id}-star" class="absolute -top-3 -right-3 text-2xl text-yellow-400 hidden drop-shadow"><i class="fa-solid fa-star"></i></div>
+                </div>`;
+            
+            if (node.children.length > 0) {
+                html += `<ul>${node.children.map(renderTreeHTML).join('')}</ul>`;
+            }
+            html += `</li>`;
+            return html;
+        }
+
+        // --- MOTOR DE LA SIMULACION Y PASOS ---
+        let rootNode = null;
+        let frames = [];
+        let currentMap = {};
+
+        function formatVal(v) {
+            if (v === Infinity) return '∞';
+            if (v === -Infinity) return '-∞';
+            if (v === null) return '?';
+            return v > 0 ? `+${v}` : v;
+        }
+
+        function cloneMap() { return JSON.parse(JSON.stringify(currentMap)); }
+
+        function markPruned(node) {
+            currentMap[node.id] = { a: null, b: null, v: null, status: 'pruned' };
+            node.children.forEach(markPruned);
+        }
+
+        function simulate(node, a, b, useAB) {
+            currentMap[node.id] = { a: a, b: b, v: null, status: 'active', bestMove: null };
+            frames.push({ 
+                desc: `Evaluando nodo actual <b>[${node.state}]</b>.<br>Es el turno de ${node.isMax ? 'MAX' : 'MIN'}.`, 
+                map: cloneMap(), activeId: node.id 
+            });
+
+            // Terminal
+            if (node.state[0] === 0 && node.state[1] === 0) {
+                let v = node.isMax ? -1 : 1; // Si es turno de MAX, MIN tiró último (+1 para MIN = -1 para MAX)
+                currentMap[node.id].v = v;
+                currentMap[node.id].status = 'evaluated';
+                frames.push({ 
+                    desc: `<b>Estado Terminal [0,0]</b>.<br>El ganador es ${node.isMax ? 'MIN' : 'MAX'}, la utilidad del nodo es <b>${formatVal(v)}</b>.`, 
+                    map: cloneMap(), activeId: node.id 
+                });
+                return v;
+            }
+
+            let bestV = node.isMax ? -Infinity : Infinity;
+            let bestChildId = null;
+
+            for (let i = 0; i < node.children.length; i++) {
+                let child = node.children[i];
+                let v = simulate(child, a, b, useAB);
+
+                if (node.isMax) {
+                    if (v > bestV) { bestV = v; bestChildId = child.id; }
+                    a = Math.max(a, bestV);
+                } else {
+                    if (v < bestV) { bestV = v; bestChildId = child.id; }
+                    b = Math.min(b, bestV);
+                }
+
+                currentMap[node.id].v = bestV;
+                currentMap[node.id].a = a;
+                currentMap[node.id].b = b;
+                currentMap[node.id].bestMove = bestChildId;
+                
+                frames.push({ 
+                    desc: `El nodo hijo devolvió <b>${formatVal(v)}</b>.<br>Actualizando el valor de [${node.state}] a <b>${formatVal(bestV)}</b>.`, 
+                    map: cloneMap(), activeId: node.id 
+                });
+
+                if (useAB && b <= a) {
+                    frames.push({ 
+                        desc: `<b class="text-red-600">¡Poda Alfa-Beta detectada!</b><br>Como α (${formatVal(a)}) ≥ β (${formatVal(b)}), no necesitamos evaluar más ramas desde aquí.`, 
+                        map: cloneMap(), activeId: node.id 
+                    });
+                    
+                    for (let j = i + 1; j < node.children.length; j++) {
+                        markPruned(node.children[j]);
+                    }
+                    
+                    frames.push({ 
+                        desc: `Ramas descartadas visualmente. Retornando valor <b>${formatVal(bestV)}</b> para este nodo.`, 
+                        map: cloneMap(), activeId: node.id 
+                    });
+                    break;
+                }
+            }
+
+            currentMap[node.id].status = 'evaluated';
+            frames.push({ 
+                desc: `Evaluación completa para [${node.state}].<br>El valor Minimax final de este nodo es <b>${formatVal(bestV)}</b>.`, 
+                map: cloneMap(), activeId: node.id 
+            });
+            return bestV;
+        }
+
+        function generateSimulation() {
+            frames = [];
+            currentMap = {};
+            
+            // Inicializar map en unvisited
+            function initMap(n) {
+                currentMap[n.id] = { a: null, b: null, v: null, status: 'unvisited', bestMove: null };
+                n.children.forEach(initMap);
+            }
+            initMap(rootNode);
+            
+            // Frame inicial 0
+            frames.push({ desc: "Árbol de juego generado. Haz clic en Reproducir para comenzar la búsqueda.", map: cloneMap(), activeId: null });
+            
+            // Simular y capturar
+            let useAB = document.getElementById('toggle-ab').checked;
+            simulate(rootNode, -Infinity, Infinity, useAB);
+            
+            // Frame Final
+            let lastMap = cloneMap();
+            frames.push({ desc: `<b class="text-green-600">¡Búsqueda Finalizada!</b><br>El valor del estado inicial es <b>${formatVal(lastMap[rootNode.id].v)}</b>. La estrella indica el movimiento óptimo.`, map: lastMap, activeId: null });
+        }
+
+        // --- UI E INTERACCION ---
+        let currentFrameIndex = 0;
+        let playInterval = null;
+
+        function renderFrame(index) {
+            let frame = frames[index];
+            let useAB = document.getElementById('toggle-ab').checked;
+            
+            // Update UI Sidebar
+            document.getElementById('step-counter').innerText = `${index} / ${frames.length - 1}`;
+            document.getElementById('step-progress').style.width = `${(index / (frames.length - 1)) * 100}%`;
+            document.getElementById('step-description').innerHTML = frame.desc;
+
+            // Update Tree DOM
+            for (let id in frame.map) {
+                let state = frame.map[id];
+                let domNode = document.getElementById(id);
+                let domV = document.getElementById(`${id}-v`);
+                let domAB = document.getElementById(`${id}-ab`);
+                let domStar = document.getElementById(`${id}-star`);
+                
+                // Limpiar clases de estado
+                domNode.classList.remove('status-unvisited', 'status-active', 'status-evaluated', 'status-pruned');
+                domNode.classList.add(`status-${state.status}`);
+
+                // Valores de Alfa y Beta si la opción está activa y el nodo no está no-visitado ni podado
+                if (useAB && (state.status === 'active' || state.status === 'evaluated')) {
+                    domAB.classList.remove('hidden');
+                    domAB.innerText = `α:${formatVal(state.a)} β:${formatVal(state.b)}`;
+                } else {
+                    domAB.classList.add('hidden');
+                }
+
+                // Valor V
+                if (state.v !== null) {
+                    domV.innerText = `v: ${formatVal(state.v)}`;
+                    domV.classList.remove('text-slate-300');
+                    // Color especial si es la respuesta final del root
+                    if (id === rootNode.id && index === frames.length -1) domV.className = "font-bold mt-2 text-2xl text-green-600";
+                    else domV.className = "font-bold mt-2 text-xl text-slate-800";
+                } else {
+                    domV.innerText = `v: ?`;
+                    domV.className = "font-bold mt-2 text-xl text-slate-300";
+                }
+
+                // Resaltar nodo activo
+                if (frame.activeId === id) {
+                    domNode.style.transform = 'scale(1.1)';
+                    domNode.style.zIndex = '20';
+                } else {
+                    domNode.style.transform = '';
+                    domNode.style.zIndex = '';
+                }
+
+                // Estrella para el mejor movimiento (sólo visible al final de evaluar un nodo padre)
+                if (state.status === 'evaluated' && state.bestMove) {
+                    // Activar estrella en el hijo que fue el mejor movimiento
+                    let bestDomStar = document.getElementById(`${state.bestMove}-star`);
+                    if(bestDomStar) bestDomStar.classList.remove('hidden');
+                } else {
+                    if (domStar) domStar.classList.add('hidden');
+                }
+            }
+
+            // Asegurar scroll visual hacia el nodo activo
+            if (frame.activeId) {
+                let activeEl = document.getElementById(frame.activeId);
+                if (activeEl) activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+            }
+        }
+
+        function pause() {
+            clearInterval(playInterval);
+            playInterval = null;
+            document.getElementById('btn-play').innerHTML = '<i class="fa-solid fa-play mr-1"></i> Reproducir';
+        }
+
+        function play() {
+            if (currentFrameIndex >= frames.length - 1) currentFrameIndex = 0; // Reiniciar si terminó
+            document.getElementById('btn-play').innerHTML = '<i class="fa-solid fa-pause mr-1"></i> Pausa';
+            playInterval = setInterval(() => {
+                if (currentFrameIndex < frames.length - 1) {
+                    currentFrameIndex++;
+                    renderFrame(currentFrameIndex);
+                } else {
+                    pause();
+                }
+            }, 800); // 800ms por paso
+        }
+
+        // --- INICIALIZACION ---
+        function initApp() {
+            pause();
+            globalNodeId = 0;
+            // Estado inicial [1,3] y le toca a MAX (isMax = true)
+            rootNode = buildFullTree([1, 3], true);
+            
+            document.getElementById('tree-render-target').innerHTML = `<ul>${renderTreeHTML(rootNode)}</ul>`;
+            
+            generateSimulation();
+            currentFrameIndex = 0;
+            renderFrame(0);
+        }
+
+        // Listeners
+        document.getElementById('toggle-ab').addEventListener('change', initApp);
+        document.getElementById('btn-reset').addEventListener('click', initApp);
+        document.getElementById('btn-next').addEventListener('click', () => {
+            pause();
+            if (currentFrameIndex < frames.length - 1) renderFrame(++currentFrameIndex);
+        });
+        document.getElementById('btn-prev').addEventListener('click', () => {
+            pause();
+            if (currentFrameIndex > 0) renderFrame(--currentFrameIndex);
+        });
+        document.getElementById('btn-play').addEventListener('click', () => {
+            if (playInterval) pause();
+            else play();
+        });
+
+        // Arranque
+        window.onload = initApp;
+    </script>
+</body>
+</html>
